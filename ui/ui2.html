@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Robofest</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/three@0.147.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<style>
+  :root {
+    --bg:#f3f5f9; --card:#fff; --soft:#f6f7fa; --line:#e6e9f0; --text:#1b2030; --muted:#8a93a6;
+    --primary:#3454d1; --primary-soft:#e8edfd;
+    --green:#16a34a; --green-soft:#e3f6ea; --orange:#e08a00; --orange-soft:#fff1d6;
+    --red:#dc2626; --red-soft:#fde8e8; --gray-soft:#eceef3;
+    --r:14px;
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; margin:0; }
+  body { background:var(--bg); color:var(--text); font:14px/1.45 "Pretendard","Malgun Gothic","Segoe UI",sans-serif; overflow:hidden; }
+  button, select, input { font:inherit; color:inherit; }
+  svg { flex:none; }
+  .app { display:flex; gap:16px; height:100%; padding:16px; }
+  .card { background:var(--card); border-radius:var(--r); }
+
+  /* ---- 사이드바 ---- */
+  aside { width:232px; display:flex; flex-direction:column; gap:12px; transition:width .15s; }
+  .logo { height:48px; display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--primary); font-size:16px; }
+  .iconbtn { width:44px; height:44px; border:0; display:grid; place-items:center; cursor:pointer; color:var(--primary); }
+  .iconbtn:hover { background:var(--primary-soft); }
+  nav { padding:12px; display:flex; flex-direction:column; gap:6px; flex:1; }
+  .nav-item { display:flex; align-items:center; gap:12px; padding:11px 14px; border-radius:10px; border:0; background:none; cursor:pointer;
+              color:#5b6478; text-align:left; font-weight:500; white-space:nowrap; position:relative; }
+  .nav-item:hover { background:var(--soft); }
+  .nav-item.active { background:var(--primary-soft); color:var(--primary); font-weight:600; }
+  .nav-dot { position:absolute; right:12px; top:50%; width:8px; height:8px; margin-top:-4px; border-radius:50%; background:var(--red); display:none; }
+  .nav-item.alert .nav-dot { display:block; }
+  .collapsed aside { width:68px; }
+  .collapsed .logo { font-size:0; }
+  .collapsed .logo::before { content:"●"; font-size:14px; }
+  .collapsed .nav-item { justify-content:center; padding:11px 0; }
+  .collapsed .nav-item span { display:none; }
+
+  /* ---- 본문 ---- */
+  main { flex:1; min-width:0; display:flex; flex-direction:column; gap:12px; }
+  .top { height:48px; padding:0 16px 0 20px; display:flex; align-items:center; justify-content:space-between; }
+  .top h1 { margin:0; font-size:16px; font-weight:700; }
+  .avatar { width:30px; height:30px; border-radius:50%; background:var(--primary-soft); color:var(--primary); display:grid; place-items:center; }
+  .content { flex:1; min-height:0; padding:20px; overflow-y:auto; position:relative; }
+  .page { display:none; flex-direction:column; gap:16px; min-height:100%; }
+  .page.active { display:flex; }
+  .page.fill { height:100%; min-height:0; }
+
+  h3 { margin:0; font-size:14px; font-weight:700; }
+  .sub { color:var(--muted); font-size:12px; font-weight:400; margin-left:6px; }
+  .muted { color:var(--muted); font-size:12px; }
+  .panel { border:1px solid var(--line); border-radius:12px; padding:16px; background:#fff; }
+  .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .grow { flex:1; }
+
+  /* 배지 */
+  .badge { display:inline-flex; align-items:center; gap:5px; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:600; white-space:nowrap; }
+  .badge::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .b-green { background:var(--green-soft); color:var(--green); }
+  .b-orange { background:var(--orange-soft); color:var(--orange); }
+  .b-red { background:var(--red-soft); color:var(--red); }
+  .b-gray { background:var(--gray-soft); color:#667085; }
+
+  /* 배너 */
+  .banner { display:flex; align-items:center; gap:8px; padding:10px 14px; border-radius:10px; font-size:13px; }
+  .banner.red { background:var(--red-soft); color:var(--red); border:1px solid #f9c9c9; }
+  .banner.orange { background:var(--orange-soft); color:#a76300; border:1px solid #f6d99a; }
+  .banner.green { background:var(--green-soft); color:var(--green); border:1px solid #bfe8cd; }
+  .banner.blue { background:var(--primary-soft); color:var(--primary); border:1px solid #cdd8fa; }
+
+  /* 수신기 바 */
+  .recv { display:flex; flex-direction:column; gap:10px; }
+  .recv-bar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:10px 14px; border:1px solid var(--line); border-radius:12px; }
+  .recv-name { font-weight:700; display:flex; align-items:center; gap:8px; }
+  .ctl { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }
+  select, input[type=text] { height:32px; border:1px solid var(--line); border-radius:8px; padding:0 8px; background:#fff; min-width:0; }
+  select:focus, input:focus { outline:2px solid #c7d3fb; border-color:var(--primary); }
+  .btn { height:32px; padding:0 14px; border-radius:8px; border:1px solid var(--line); background:#fff; cursor:pointer; font-weight:600; white-space:nowrap; display:inline-flex; align-items:center; gap:6px; }
+  .btn:hover:not(:disabled) { border-color:var(--primary); color:var(--primary); }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .btn.primary { background:var(--primary); border-color:var(--primary); color:#fff; }
+  .btn.primary:hover:not(:disabled) { background:#2a46b8; color:#fff; }
+  .btn.outline { border-color:var(--primary); color:var(--primary); }
+  .btn.danger { color:var(--red); }
+  .btn.lg { height:38px; padding:0 18px; }
+  .hint { font-size:11px; color:var(--muted); text-align:right; }
+
+  /* 로봇 카드 */
+  .robots { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px; }
+  .robot { background:var(--soft); border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:10px; position:relative; }
+  .robot .head { display:flex; align-items:center; gap:10px; }
+  .thumb { width:38px; height:38px; border-radius:10px; background:#dfe3ec; color:#5b6478; display:grid; place-items:center; flex:none; }
+  .robot .name { font-weight:700; }
+  .robot .foot { display:flex; justify-content:space-between; color:var(--muted); font-size:12px; align-items:center; }
+  .robot .foot .b { display:flex; align-items:center; gap:4px; }
+  .robot .del { position:absolute; right:10px; bottom:8px; opacity:0; border:0; background:none; color:var(--red); cursor:pointer; padding:4px; }
+  .robot:hover .del { opacity:1; }
+  .empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:28px 0; color:var(--muted); font-size:12px; text-align:center; }
+
+  /* 표 */
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; color:var(--muted); font-weight:500; font-size:12px; padding:8px 10px; border-bottom:1px solid var(--line); }
+  td { padding:9px 10px; border-bottom:1px solid #f0f2f6; }
+  td.num { font-variant-numeric:tabular-nums; }
+
+  /* 배터리 */
+  .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+  .stat { border:1px solid var(--line); border-radius:12px; padding:12px 16px; }
+  .stat .k { color:var(--muted); font-size:12px; }
+  .stat .v { font-size:20px; font-weight:700; margin-top:2px; }
+  .bat { display:grid; grid-template-columns:200px 1fr 220px; align-items:center; gap:20px; border:1px solid var(--line); border-radius:12px; padding:16px 20px; }
+  .bat .pct { display:flex; align-items:center; gap:8px; font-size:26px; font-weight:800; }
+  .bar { height:8px; border-radius:6px; background:var(--gray-soft); overflow:hidden; margin:8px 0 6px; }
+  .bar > i { display:block; height:100%; border-radius:6px; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; font-size:12px; }
+  .kv span:nth-child(odd) { color:var(--muted); }
+  .kv span:nth-child(even) { text-align:right; font-weight:600; }
+  .c-green { color:var(--green); } .c-orange { color:var(--orange); } .c-red { color:var(--red); } .c-gray { color:#98a2b3; }
+  .f-green { background:var(--green); } .f-orange { background:#f59e0b; } .f-red { background:var(--red); }
+  .legend { display:flex; gap:14px; font-size:12px; color:var(--muted); }
+  .legend i { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; }
+  #batChart { width:100%; height:190px; display:block; }
+
+  /* 카메라 */
+  .tabs { display:flex; gap:6px; }
+  .tab { border:0; background:var(--soft); padding:6px 14px; border-radius:8px; cursor:pointer; font-weight:600; color:#5b6478; }
+  .tab.active { background:var(--primary-soft); color:var(--primary); }
+  .cam-grid { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:16px; align-items:start; }
+  .video { position:relative; aspect-ratio:4/3; max-height:56vh; width:100%; background:#10131a; border-radius:12px; overflow:hidden; display:grid; place-items:center; }
+  .video video, .video canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  .video .tag { position:absolute; top:10px; padding:2px 9px; border-radius:6px; font-size:11px; font-weight:700; color:#fff; background:rgba(0,0,0,.55); z-index:2; }
+  .video .tag.l { left:10px; } .video .tag.r { right:10px; }
+  .video .tag.live { background:#e11d48; } .video .tag.off { background:#475467; } .video .tag.rec { background:#e11d48; animation:blink 1s infinite; }
+  .video .off-msg { position:relative; z-index:1; color:#c4cad6; text-align:center; display:flex; flex-direction:column; align-items:center; gap:10px; }
+  .video.fall { outline:3px solid var(--red); }
+  @keyframes blink { 50% { opacity:.55; } }
+  .controls { display:flex; align-items:center; gap:8px; padding:10px 4px 0; }
+  .cbtn { width:34px; height:34px; border-radius:8px; border:0; background:var(--soft); cursor:pointer; display:grid; place-items:center; color:#475467; }
+  .cbtn:hover:not(:disabled) { background:var(--primary-soft); color:var(--primary); }
+  .cbtn:disabled { opacity:.4; cursor:not-allowed; }
+  .cbtn.rec { color:var(--red); }
+  .caps { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:10px; }
+  .caps img { width:100%; aspect-ratio:4/3; object-fit:cover; border-radius:6px; cursor:pointer; display:block; }
+
+  /* 지도 */
+  .mapwrap { position:relative; flex:1; min-height:320px; border-radius:12px; overflow:hidden; background:#10131a; }
+  #mapview { position:absolute; inset:0; }
+  #mapview canvas { display:block; }
+  .overlay { position:absolute; background:rgba(255,255,255,.94); border:1px solid var(--line); border-radius:12px; padding:10px 14px; z-index:3; }
+  #mapTL { left:12px; top:12px; display:flex; flex-direction:column; gap:8px; max-width:260px; }
+  #mapHud { right:12px; top:12px; line-height:1.7; min-width:170px; font-variant-numeric:tabular-nums; font-size:13px; }
+  #mapHud b { color:var(--primary); }
+  #miniMap { position:absolute; right:12px; bottom:12px; width:200px; height:200px; border-radius:12px; border:1px solid var(--line); z-index:3; }
+  #mapSettings { left:12px; bottom:12px; width:270px; display:none; flex-direction:column; gap:8px; max-height:70%; overflow:auto; }
+  #mapSettings.open { display:flex; }
+  .fld { display:flex; flex-direction:column; gap:3px; font-size:12px; color:var(--muted); }
+  .fld input { height:30px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  #fallBanner { position:absolute; left:50%; top:12px; transform:translateX(-50%); z-index:4; display:none; background:#e11d48; color:#fff; font-weight:700; padding:9px 20px; border-radius:10px; box-shadow:0 6px 24px rgba(225,29,72,.4); animation:blink 1s infinite; }
+  #fallBanner.show { display:block; }
+  .mapmsg { position:absolute; inset:0; display:grid; place-items:center; color:#c4cad6; z-index:2; text-align:center; padding:20px; }
+
+  /* 로봇등록 */
+  .form { display:grid; grid-template-columns:1fr 1fr; gap:12px 16px; }
+  .form label { display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--muted); font-weight:500; }
+  .form label b { color:var(--red); }
+  .form input { height:38px; font-size:13px; color:var(--text); }
+  .model { display:flex; align-items:center; gap:12px; padding:10px 14px; border-radius:10px; background:var(--soft); }
+  .spin { width:14px; height:14px; border-radius:50%; border:2px solid #c7d3fb; border-top-color:var(--primary); animation:spin .8s linear infinite; display:inline-block; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* 중앙 오류 팝업 */
+  #commErr { position:fixed; inset:0; background:rgba(16,19,26,.45); display:none; place-items:center; z-index:50; }
+  #commErr.show { display:grid; }
+  #commErr .box { background:#fff; border-radius:16px; padding:28px 36px; text-align:center; min-width:340px; max-width:420px; box-shadow:0 20px 60px rgba(0,0,0,.3); border-top:5px solid var(--red); }
+  #commErr .ico { width:52px; height:52px; border-radius:50%; background:var(--red-soft); color:var(--red); display:grid; place-items:center; margin:0 auto 12px; }
+  #ceTitle { font-size:20px; font-weight:800; color:var(--red); }
+  #ceDetail { color:#475467; margin:6px 0 18px; }
+  @media (max-width:1100px) {
+    .bat { grid-template-columns:1fr; gap:10px; }
+    .cam-grid { grid-template-columns:1fr; }
+    .robots { grid-template-columns:1fr; }
+    .form { grid-template-columns:1fr; }
+    .content { padding:14px; }
+  }
+  ::-webkit-scrollbar { width:8px; height:8px; } ::-webkit-scrollbar-thumb { background:#d5d9e3; border-radius:8px; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <aside>
+    <div class="logo card">로고 이름</div>
+    <button class="iconbtn card" id="burger" title="메뉴 접기/펼치기"></button>
+    <nav class="card" id="nav"></nav>
+  </aside>
+  <main>
+    <header class="top card"><h1 id="title"></h1><div class="avatar" id="avatar"></div></header>
+    <div class="content card" id="content"></div>
+  </main>
+</div>
+
+<div id="commErr"><div class="box">
+  <div class="ico" id="ceIco"></div>
+  <div id="ceTitle">통신 끊김</div>
+  <div id="ceDetail"></div>
+  <button class="btn primary lg" id="ceClose">확인</button>
+</div></div>
+
+<script>
+// ====================================================================== 공통 유틸
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+const store = { get:(k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+                set:(k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+const setHTML = (el, html) => { if (el && el._h !== html) { el.innerHTML = html; el._h = html; } };
+
+const ICON = {
+  menu:'<line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>',
+  battery:'<rect width="16" height="10" x="2" y="7" rx="2"/><line x1="22" x2="22" y1="11" y2="13"/>',
+  wifi:'<path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/>',
+  camera:'<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3"/>',
+  cameraOff:'<path d="M2 2l20 20"/><path d="M7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 1.4-.6"/><path d="M9.5 4h5L17 7h3a2 2 0 0 1 2 2v7.5"/><path d="M14.1 14.1a3 3 0 0 1-4.2-4.2"/>',
+  map:'<path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/>',
+  bot:'<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  play:'<polygon points="6 3 20 12 6 21 6 3"/>',
+  pause:'<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>',
+  rec:'<circle cx="12" cy="12" r="6" fill="currentColor"/>',
+  stop:'<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"/>',
+  full:'<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  check:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  trash:'<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+};
+const ic = (n, s = 18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[n]}</svg>`;
+
+const PAGES = [
+  { id:'battery', label:'배터리', icon:'battery' },
+  { id:'comm',    label:'통신상태', icon:'wifi' },
+  { id:'camera',  label:'카메라', icon:'camera' },
+  { id:'map',     label:'지도', icon:'map' },
+  { id:'reg',     label:'로봇등록', icon:'bot' },
+];
+const NODATA_AFTER = 5;     // 초: 수신기는 연결됐지만 이 시간 동안 유효 데이터가 없으면 "데이터 없음"
+const COMM_TIMEOUT = 3;     // 초: 데이터를 받다가 이 시간 이상 끊기면 중앙에 오류 팝업
+const COLORS = ['#3454d1', '#e11d48', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'];
+
+let S = null;               // 최신 상태 (파이썬 get_state)
+let page = store.get('page', 'comm');
+if (!PAGES.some(p => p.id === page)) page = 'comm';
+
+const rxStatus = () => {
+  if (!S) return 'off';
+  if (S.rx.state === 'error') return 'error';
+  if (S.rx.state !== 'connected') return 'off';
+  return (S.rx.age === null || S.rx.age > NODATA_AFTER) ? 'nodata' : 'ok';
+};
+const ago = a => a === null || a === undefined ? null : a < 1.5 ? '방금' : a < 60 ? `${Math.round(a)}초 전` : `${Math.floor(a / 60)}분 전`;
+const robotColor = sn => COLORS[Math.max(0, (S?.robots ?? []).findIndex(r => r.serial === sn)) % COLORS.length];
+
+function robotStatus(r) {
+  const rs = rxStatus();
+  if (rs === 'off' || rs === 'error') return { t:'수신기 연결 끊김', c:'gray' };
+  if (r.age !== null && r.age < 3) return { t:'수신 중', c:'green' };
+  if (r.age === null) return { t:rs === 'nodata' ? '데이터 없음' : '대기', c:rs === 'nodata' ? 'gray' : 'orange' };
+  return { t:'수신 지연', c:'orange' };
+}
+const battClass = p => p === null || p === undefined ? 'gray' : p < 20 ? 'red' : p < 40 ? 'orange' : 'green';
+
+// ====================================================================== 뼈대
+$('#burger').innerHTML = ic('menu', 20);
+$('#avatar').innerHTML = ic('user', 16);
+$('#nav').innerHTML = PAGES.map(p => `<button class="nav-item" data-page="${p.id}">${ic(p.icon)}<span>${p.label}</span><i class="nav-dot"></i></button>`).join('');
+$('#burger').onclick = () => { $('#app').classList.toggle('collapsed'); store.set('collapsed', $('#app').classList.contains('collapsed') ? '1' : ''); setTimeout(() => window.dispatchEvent(new Event('resize')), 200); };
+if (store.get('collapsed', '')) $('#app').classList.add('collapsed');
+$('#nav').onclick = e => { const b = e.target.closest('[data-page]'); if (b) go(b.dataset.page); };
+
+function recvBar() {
+  const chans = Array.from({ length:100 }, (_, i) => `<option value="${i + 1}">${String(i + 1).padStart(2, '0')}</option>`).join('');
+  const bauds = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200].map(b => `<option>${b}</option>`).join('');
+  return `<div class="recv">
+    <div class="recv-bar">
+      <div class="recv-name">${ic('wifi', 16)} HC-12 수신기 <span class="badge b-gray js-badge">확인 중</span></div>
+      <span class="muted js-last"></span><span class="grow"></span>
+      <label class="ctl">포트 <select class="js-port"></select></label>
+      <label class="ctl" title="표시용 설정입니다. 실제 HC-12 채널은 모듈의 AT 설정으로 바꿉니다.">채널 <select class="js-chan">${chans}</select></label>
+      <label class="ctl">보드레이트 <select class="js-baud">${bauds}</select></label>
+      <button class="btn js-toggle">수신기 연결</button>
+    </div>
+    <div class="js-banner"></div>
+    <div class="hint js-hint"></div>
+  </div>`;
+}
+
+function robotCards(del) {
+  const robots = S?.robots ?? [];
+  if (!robots.length) return `<div class="empty">${ic('bot', 28)}등록된 로봇이 없습니다.<br>로봇등록 화면에서 로봇을 추가하세요.</div>`;
+  return `<div class="robots">${robots.map(r => {
+    const st = robotStatus(r), b = r.battery === null ? '--' : Math.round(r.battery);
+    return `<div class="robot"><div class="head"><div class="thumb">${ic('bot', 20)}</div>
+      <div class="grow"><div class="name">${esc(r.name)}</div><div class="muted">${esc(r.model)} · ${esc(r.serial)}</div></div>
+      <span class="badge b-${st.c}">${st.t}</span></div>
+      <div class="foot"><span class="b c-${battClass(r.battery)}">${ic('battery', 14)} ${b}${b === '--' ? '' : '%'}</span>
+      <span>${r.age === null ? '수신 기록 없음' : '마지막 수신 ' + ago(r.age)}</span></div>
+      ${del ? `<button class="del" data-del="${esc(r.serial)}" title="로봇 삭제">${ic('trash', 15)}</button>` : ''}</div>`;
+  }).join('')}</div>`;
+}
+
+const content = $('#content');
+content.innerHTML = `
+<!-- ================= 배터리 ================= -->
+<section class="page" id="p-battery">
+  <div class="stats" id="batStats"></div>
+  <div id="batBanner"></div>
+  <div id="batList" style="display:flex;flex-direction:column;gap:12px"></div>
+  <div class="panel">
+    <div class="row" style="margin-bottom:8px"><h3>최근 1시간 배터리 변화</h3><span class="grow"></span><div class="legend" id="batLegend"></div></div>
+    <canvas id="batChart"></canvas>
+  </div>
+</section>
+
+<!-- ================= 통신상태 ================= -->
+<section class="page" id="p-comm">
+  ${recvBar()}
+  <div><h3>등록된 로봇 <span class="sub" id="commCount"></span></h3></div>
+  <div id="commRobots"></div>
+  <div class="panel"><div class="row" style="margin-bottom:6px"><h3>최근 수신 기록</h3></div>
+    <div id="commLog"></div></div>
+</section>
+
+<!-- ================= 카메라 ================= -->
+<section class="page" id="p-camera">
+  <div class="row"><div class="tabs" id="camTabs"></div><span class="grow"></span><span class="muted" id="camNote"></span></div>
+  <div id="camFall"></div>
+  <div class="cam-grid">
+    <div>
+      <div class="video" id="video">
+        <video id="camVideo" muted playsinline></video><canvas id="camOverlay"></canvas>
+        <span class="tag l off" id="camTagL">연결 안 됨</span><span class="tag r" id="camTagR"></span>
+        <div class="off-msg" id="camOff">${ic('cameraOff', 36)}<div>카메라에 연결할 수 없습니다.</div><button class="btn primary" id="camConnect">카메라 연결</button></div>
+      </div>
+      <div class="controls">
+        <button class="cbtn" id="cPlay" title="일시정지/재생"></button>
+        <button class="cbtn" id="cShot" title="캡처"></button>
+        <button class="cbtn rec" id="cRec" title="녹화"></button>
+        <span class="muted" id="recTime"></span><span class="grow"></span>
+        <button class="cbtn" id="cFull" title="전체 화면"></button>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="panel"><h3 style="margin-bottom:10px">카메라 정보</h3>
+        <div class="kv" id="camInfo"></div>
+        <label class="fld" style="margin-top:12px">카메라 장치<select id="camSel"><option value="">기본 카메라</option></select></label>
+        <label class="row" style="margin-top:10px;font-size:12px"><input type="checkbox" id="fallOn" checked> 쓰러진 사람 감지</label>
+      </div>
+      <div class="panel"><div class="row"><h3>저장된 캡처</h3><span class="sub" id="capCount"></span></div><div id="caps"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 지도 ================= -->
+<section class="page fill" id="p-map">
+  <div class="mapwrap" id="mapwrap">
+    <div id="mapview"></div>
+    <div class="overlay" id="mapTL">
+      <label class="fld">따라갈 로봇<select id="mapSel"></select></label>
+      <label class="row" style="font-size:12px"><input type="checkbox" id="follow" checked> 3인칭 추적 시점</label>
+      <div class="row"><button class="btn" id="mapSetBtn">${ic('gear', 14)} 설정</button><button class="btn" id="clearTrail">궤적 지우기</button></div>
+    </div>
+    <div class="overlay" id="mapHud"></div>
+    <div id="fallBanner">⚠ 쓰러진 사람 감지</div>
+    <canvas id="miniMap" width="200" height="200"></canvas>
+    <div class="overlay" id="mapSettings">
+      <h3>로봇 파라미터</h3>
+      <label class="fld">바퀴 1회전당 엔코더 카운트<input type="text" id="pTpr"></label>
+      <div class="two"><label class="fld">바퀴 지름(m)<input type="text" id="pDia"></label><label class="fld">바퀴 간격(m)<input type="text" id="pBase"></label></div>
+      <h3 style="margin-top:6px">수동 입력</h3>
+      <div class="two"><label class="fld">좌 카운트<input type="text" id="mL" value="100"></label><label class="fld">우 카운트<input type="text" id="mR" value="100"></label></div>
+      <div class="two"><button class="btn primary" id="mAdd">증분 더하기</button><button class="btn" id="mSet">누적값 설정</button></div>
+      <button class="btn danger" id="mReset">위치 초기화</button>
+    </div>
+    <div class="mapmsg" id="mapMsg" style="display:none"></div>
+  </div>
+</section>
+
+<!-- ================= 로봇등록 ================= -->
+<section class="page" id="p-reg">
+  ${recvBar()}
+  <div><h3>등록된 로봇 <span class="sub" id="regCount"></span></h3></div>
+  <div id="regRobots"></div>
+  <div class="panel" style="display:flex;flex-direction:column;gap:14px">
+    <div class="row"><h3>새로운 로봇 등록하기</h3><span class="grow"></span>
+      <button class="btn outline lg" id="btnTest">연결 테스트</button><button class="btn primary lg" id="btnReg">등록</button></div>
+    <div class="form">
+      <label><span>품번 <b>*</b></span><input type="text" id="fModel" placeholder="예: ROBO-X200" autocomplete="off"></label>
+      <label><span>시리얼번호 <b>*</b></span><input type="text" id="fSerial" placeholder="예: RX200-001 (로봇이 보내는 ID)" autocomplete="off"></label>
+      <label><span>로봇 이름 <b>*</b></span><input type="text" id="fName" placeholder="예: 로봇 C" autocomplete="off"></label>
+      <label><span>메모 (선택)</span><input type="text" id="fMemo" placeholder="메모를 입력하세요" autocomplete="off"></label>
+    </div>
+    <div class="model" id="regModel" style="display:none"></div>
+    <div id="regMsg"></div>
+  </div>
+</section>
+`;
+
+// ====================================================================== 페이지 전환
+function go(id) {
+  page = id; store.set('page', id);
+  $$('.page').forEach(p => p.classList.toggle('active', p.id === 'p-' + id));
+  $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.page === id));
+  $('#title').textContent = PAGES.find(p => p.id === id).label;
+  if (id === 'map') { initMap(); resizeMap(); }
+  if (id === 'camera') camPageShown();
+  render();
+}
+
+// ====================================================================== 수신기 바 (통신상태/로봇등록 공용)
+let ports = [];
+async function refreshPorts() {
+  try { ports = await pywebview.api.list_ports(); } catch { ports = []; }
+  $$('.js-port').forEach(sel => {
+    const cur = sel.value || store.get('port', '');
+    sel.innerHTML = ports.length ? ports.map(p => `<option value="${esc(p.port)}">${esc(p.port)} — ${esc(p.desc)}</option>`).join('') : '<option value="">포트 없음</option>';
+    if (ports.some(p => p.port === cur)) sel.value = cur;
+  });
+}
+$$('.js-baud').forEach(s => s.value = store.get('baud', '9600'));
+$$('.js-chan').forEach(s => s.value = store.get('chan', '1'));
+content.addEventListener('change', e => {
+  const t = e.target;
+  const sync = (cls, key) => { if (t.matches(cls)) { store.set(key, t.value); $$(cls).forEach(s => s.value = t.value); return true; } };
+  sync('.js-port', 'port'); sync('.js-baud', 'baud');
+  if (sync('.js-chan', 'chan')) pywebview.api.set_channel(t.value);
+});
+content.addEventListener('focusin', e => { if (e.target.matches('.js-port')) refreshPorts(); });
+
+let userAction = false;
+content.addEventListener('click', async e => {
+  const tog = e.target.closest('.js-toggle');
+  if (tog) {
+    const bar = tog.closest('.recv');
+    if (rxStatus() === 'off' || rxStatus() === 'error') {
+      const port = $('.js-port', bar).value;
+      if (!port) { toast('연결할 포트를 선택하세요.'); return; }
+      hadFrames = false; alerted = false; hideErr();
+      const r = await pywebview.api.connect(port, $('.js-baud', bar).value);
+      if (!r.ok) toast('연결 실패: ' + r.error);
+    } else { hadFrames = false; hideErr(); await pywebview.api.disconnect(); }
+    return;
+  }
+  const del = e.target.closest('[data-del]');
+  if (del && confirm('이 로봇을 삭제할까요?')) await pywebview.api.remove_robot(del.dataset.del);
+});
+function toast(msg) { showErr('수신기 연결 실패', msg); }
+
+function renderRecv() {
+  const rs = rxStatus(), age = S.rx.age;
+  const badge = { ok:['b-green', '연결됨'], nodata:['b-orange', '데이터 없음'], off:['b-red', '연결 끊김'], error:['b-red', '연결 끊김'] }[rs];
+  $$('.recv').forEach(bar => {
+    const b = $('.js-badge', bar); b.className = 'badge js-badge ' + badge[0]; b.textContent = badge[1];
+    $('.js-last', bar).textContent = rs === 'off' || rs === 'error' ? '마지막 수신 기록 없음' : age === null ? '수신 대기 중' : '마지막 수신 ' + ago(age);
+    const t = $('.js-toggle', bar); t.textContent = (rs === 'off' || rs === 'error') ? '수신기 연결' : '연결 해제';
+    $('.js-port', bar).disabled = $('.js-baud', bar).disabled = !(rs === 'off' || rs === 'error');
+    const banner = rs === 'off' || rs === 'error'
+      ? `<div class="banner red">${ic('alert', 16)} 수신기가 연결되지 않았습니다. 수신기 연결을 확인해주세요.${S.rx.error ? ' (' + esc(S.rx.error) + ')' : ''}</div>`
+      : rs === 'nodata' ? `<div class="banner orange">${ic('alert', 16)} 수신기는 연결되었지만 ${NODATA_AFTER}초 이상 수신 데이터가 없습니다. 로봇 전원과 채널을 확인해주세요.</div>` : '';
+    setHTML($('.js-banner', bar), banner);
+    $('.js-hint', bar).textContent = S.rx.mode === 'sim' ? '※ 시뮬레이터로 연결 중입니다 (실제 수신기 아님)' : '';
+  });
+}
+
+// ====================================================================== 통신상태
+function renderComm() {
+  setHTML($('#commRobots'), robotCards(false));
+  $('#commCount').textContent = `(${S.robots.length})`;
+  const rows = S.log.slice(0, 8);
+  setHTML($('#commLog'), rows.length ? `<table><thead><tr><th>시간</th><th>로봇</th><th>수신 데이터</th><th>상태</th></tr></thead><tbody>${
+    rows.map(l => `<tr><td class="num">${l.t}</td><td>${esc(l.robot)}</td><td>${esc(l.data)}</td><td><span class="badge b-${l.status === '정상' ? 'green' : l.status === '지연' ? 'orange' : 'red'}">${l.status}</span></td></tr>`).join('')
+  }</tbody></table>` : `<div class="empty">${ic('wifi', 26)}수신 기록이 없습니다.</div>`);
+}
+
+// ====================================================================== 배터리
+function estLeft(r) {                        // 최근 기록의 감소 속도로 남은 시간 추정
+  const h = r.hist.filter(p => p[0] > S.now - 1800);
+  if (h.length < 3 || r.battery === null) return '--';
+  const dt = (h[h.length - 1][0] - h[0][0]) / 3600, dp = h[0][1] - h[h.length - 1][1];
+  if (dt < 0.01 || dp <= 0.05) return '--';
+  const hrs = r.battery / (dp / dt);
+  return hrs > 99 ? '99시간 이상' : hrs < 1 ? `약 ${Math.round(hrs * 60)}분` : `약 ${Math.floor(hrs)}시간 ${Math.round((hrs % 1) * 60)}분`;
+}
+function renderBattery() {
+  const R = S.robots, vals = R.filter(r => r.battery !== null);
+  const low = R.filter(r => r.battery !== null && r.battery < 20);
+  const avg = vals.length ? vals.reduce((a, r) => a + r.battery, 0) / vals.length : null;
+  setHTML($('#batStats'), `<div class="stat"><div class="k">등록된 로봇</div><div class="v">${R.length}대</div></div>
+    <div class="stat"><div class="k">경고 로봇</div><div class="v ${low.length ? 'c-red' : ''}">${vals.length ? low.length + '대' : '--'}</div></div>
+    <div class="stat"><div class="k">평균 배터리</div><div class="v">${avg === null ? '--%' : (Math.round(avg * 10) / 10) + '%'}</div></div>`);
+  setHTML($('#batBanner'), low.length ? `<div class="banner red">${ic('alert', 16)} ${low.map(r => `${esc(r.name)} 배터리가 ${Math.round(r.battery)}%로 부족합니다.`).join(' ')} 충전해주세요.</div>`
+    : R.length && !vals.length ? `<div class="banner orange">${ic('alert', 16)} 로봇 배터리 정보를 수신하지 못해 상태를 확인할 수 없습니다.</div>` : '');
+  setHTML($('#batList'), R.length ? R.map(r => {
+    const c = battClass(r.battery), p = r.battery, st = robotStatus(r);
+    return `<div class="bat"><div class="head" style="display:flex;gap:10px;align-items:center"><div class="thumb">${ic('bot', 20)}</div>
+      <div><div style="font-weight:700">${esc(r.name)}</div><div class="muted">${esc(r.model)} · ${esc(r.serial)}</div></div></div>
+      <div><div class="pct c-${c}">${ic('battery', 20)} ${p === null ? '--%' : Math.round(p) + '%'}</div>
+        <div class="bar"><i class="f-${c === 'gray' ? 'orange' : c}" style="width:${p ?? 0}%"></i></div>
+        <div class="muted">${r.age === null ? '수신 기록 없음' : '마지막 수신 ' + ago(r.age)}</div></div>
+      <div class="kv"><span>전압</span><span>${r.voltage === null ? '--' : r.voltage.toFixed(1) + ' V'}</span>
+        <span>상태</span><span>${st.c === 'green' ? (r.moving ? '주행 중' : '정지') : '--'}</span>
+        <span>예상 사용 시간</span><span>${estLeft(r)}</span></div></div>`;
+  }).join('') : `<div class="empty">${ic('battery', 28)}등록된 로봇이 없습니다.</div>`);
+  drawBatteryChart();
+}
+function drawBatteryChart() {
+  const cv = $('#batChart'), dpr = devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (!W) return;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const g = cv.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, W, H);
+  const L = 34, B = 20, T = 6, w = W - L - 20, h = H - B - T, t1 = S.now, t0 = t1 - 3600;
+  g.font = '11px sans-serif'; g.fillStyle = '#8a93a6'; g.strokeStyle = '#eef0f5'; g.lineWidth = 1;
+  [0, 50, 100].forEach(v => { const y = T + h * (1 - v / 100); g.beginPath(); g.moveTo(L, y); g.lineTo(W - 8, y); g.stroke(); g.textAlign = 'right'; g.fillText(v + '%', L - 6, y + 4); });
+  g.textAlign = 'center';
+  for (let i = 0; i <= 4; i++) { const t = new Date((t0 + i * 900) * 1000); g.fillText(`${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`, L + w * i / 4, H - 4); }
+  let any = false;
+  S.robots.forEach((r, i) => {
+    const pts = r.hist.filter(p => p[0] >= t0);
+    if (pts.length < 2) return; any = true;
+    g.strokeStyle = COLORS[i % COLORS.length]; g.lineWidth = 2; g.beginPath();
+    pts.forEach((p, k) => { const x = L + w * (p[0] - t0) / 3600, y = T + h * (1 - p[1] / 100); k ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.stroke();
+  });
+  if (!any) { g.fillStyle = '#98a2b3'; g.textAlign = 'center'; g.fillText('표시할 데이터가 없습니다.', L + w / 2, T + h / 2); }
+  setHTML($('#batLegend'), S.robots.map((r, i) => `<span><i style="background:${COLORS[i % COLORS.length]}"></i>${esc(r.name)}</span>`).join(''));
+}
+
+// ====================================================================== 로봇등록
+const reg = { state:'idle', msg:'' };       // idle | testing | success | fail | done
+const F = { model:$('#fModel'), serial:$('#fSerial'), name:$('#fName'), memo:$('#fMemo') };
+const regReady = () => F.model.value.trim() && F.serial.value.trim() && F.name.value.trim();
+Object.values(F).forEach(el => el.addEventListener('input', () => { if (reg.state !== 'testing') reg.state = 'idle'; renderReg(); }));
+
+$('#btnTest').onclick = async () => {
+  const r = await pywebview.api.start_test(F.serial.value.trim());
+  if (!r.ok) { reg.state = 'fail'; reg.msg = r.error; } else { reg.state = 'testing'; reg.msg = ''; }
+  renderReg();
+};
+$('#btnReg').onclick = async () => {
+  const r = await pywebview.api.register(F.model.value, F.serial.value, F.name.value, F.memo.value);
+  if (!r.ok) { reg.state = 'fail'; reg.msg = r.error; renderReg(); return; }
+  reg.state = 'done'; reg.msg = `‘${F.name.value.trim()}’ 로봇이 등록되었습니다.`;
+  Object.values(F).forEach(el => el.value = '');
+  renderReg();
+};
+
+function renderReg() {
+  if (!S) return;
+  setHTML($('#regRobots'), robotCards(true));
+  $('#regCount').textContent = `(${S.robots.length})`;
+  const rs = rxStatus(), connected = rs === 'ok' || rs === 'nodata';
+  if (reg.state === 'testing' && S.test && S.test.serial.toLowerCase() === F.serial.value.trim().toLowerCase()) {
+    if (S.test.state === 'ok') { reg.state = 'success'; reg.msg = ''; }
+    else if (S.test.state === 'fail') { reg.state = 'fail'; reg.msg = '응답이 없습니다. 로봇 전원, 시리얼번호, 채널을 확인한 뒤 다시 시도하세요.'; }
+  }
+  const ready = !!regReady();
+  $('#btnTest').disabled = !(connected && ready) || reg.state === 'testing';
+  $('#btnTest').textContent = reg.state === 'testing' ? '연결 테스트 중...' : reg.state === 'fail' ? '다시 테스트' : '연결 테스트';
+  $('#btnReg').disabled = reg.state !== 'success';
+  const m = $('#regModel');
+  m.style.display = F.model.value.trim() ? 'flex' : 'none';
+  setHTML(m, `<div class="thumb">${ic('bot', 20)}</div><div><div style="font-weight:700">${esc(F.model.value.trim())}</div><div class="muted">시리얼 ${esc(F.serial.value.trim() || '--')}</div></div>`);
+  let msg;
+  if (reg.state === 'done') msg = `<div class="banner green">${ic('check', 16)} ${esc(reg.msg)}</div>`;
+  else if (reg.state === 'testing') msg = `<div class="banner blue"><span class="spin"></span> 연결 테스트 중... 로봇 응답을 기다리는 중 (${Math.ceil(S.test?.remain ?? 0)}초)</div>`;
+  else if (reg.state === 'success') msg = `<div class="banner green">${ic('check', 16)} 연결 테스트 성공 — 로봇 응답을 확인했습니다. 등록 버튼을 눌러주세요.</div>`;
+  else if (reg.state === 'fail') msg = `<div class="banner red">${ic('alert', 16)} ${esc(reg.msg)}</div>`;
+  else if (!connected) msg = `<div class="banner red">${ic('info', 16)} 먼저 수신기를 연결해주세요.</div>`;
+  else if (!ready) msg = `<div class="banner blue">${ic('info', 16)} 품번, 시리얼번호, 로봇 이름을 입력해주세요.</div>`;
+  else msg = `<div class="banner blue">${ic('info', 16)} 연결 테스트로 로봇 응답을 확인해주세요. 테스트에 성공해야 등록할 수 있습니다.</div>`;
+  setHTML($('#regMsg'), msg);
+}
+
+// ====================================================================== 중앙 오류 팝업
+let hadFrames = false, alerted = false;
+function showErr(title, detail) { $('#ceIco').innerHTML = ic('alert', 26); $('#ceTitle').textContent = title; $('#ceDetail').textContent = detail; $('#commErr').classList.add('show'); }
+function hideErr() { $('#commErr').classList.remove('show'); }
+$('#ceClose').onclick = hideErr;
+function checkComm() {
+  const rs = rxStatus(), age = S.rx.age;
+  if (rs === 'error' && !alerted) { alerted = true; showErr('수신기 연결 끊김', '시리얼 포트 연결이 끊어졌습니다. 케이블과 포트를 확인해주세요.'); }
+  else if (rs === 'ok' || rs === 'nodata') {
+    if (age !== null && age < 2) { hadFrames = true; if (alerted) { alerted = false; hideErr(); } }
+    else if (hadFrames && age !== null && age > COMM_TIMEOUT && !alerted) { alerted = true; showErr('통신 끊김', `${COMM_TIMEOUT}초 이상 로봇 데이터가 들어오지 않았습니다.`); }
+  } else if (rs === 'off') { hadFrames = false; }
+}
+
+// ====================================================================== 렌더 루프
+function render() {
+  if (!S) return;
+  renderRecv();
+  $$('.nav-item').forEach(b => {
+    const bad = (b.dataset.page === 'comm' && (rxStatus() === 'off' || rxStatus() === 'error')) ||
+                (b.dataset.page === 'battery' && S.robots.some(r => r.battery !== null && r.battery < 20));
+    b.classList.toggle('alert', bad);
+  });
+  if (page === 'comm') renderComm();
+  if (page === 'battery') renderBattery();
+  if (page === 'reg') renderReg();
+  if (page === 'camera') renderCamera();
+  syncMap();
+}
+let lastSec = -1;
+async function poll() {
+  try {
+    S = await pywebview.api.get_state();
+    checkComm();
+    const sec = Math.floor(S.now);
+    if (page !== 'map' || sec !== lastSec) { render(); } else syncMap();
+    lastSec = sec;
+  } catch (e) { /* 파이썬 쪽이 아직 준비 안 됨 */ }
+  setTimeout(poll, 150);
+}
+
+// ====================================================================== 카메라 + 쓰러짐 감지
+const cam = { serial:null, stream:null, playing:true, rec:null, recT0:0, chunks:[], caps:[], fps:0, frames:0, fpsT:0, landmarker:null, hit:0, miss:0, fall:false, running:false, state:'off' };
+try { cam.caps = JSON.parse(store.get('caps', '[]')); } catch {}
+const camDev = () => JSON.parse(store.get('camdev', '{}'));
+$('#cPlay').innerHTML = ic('pause', 16); $('#cShot').innerHTML = ic('camera', 16); $('#cRec').innerHTML = ic('rec', 16); $('#cFull').innerHTML = ic('full', 16);
+
+function camPageShown() {
+  if (!cam.serial || !S?.robots.some(r => r.serial === cam.serial)) cam.serial = S?.robots[0]?.serial ?? null;
+}
+function renderCamera() {
+  const R = S.robots;
+  if (!cam.serial || !R.some(r => r.serial === cam.serial)) cam.serial = R[0]?.serial ?? null;
+  setHTML($('#camTabs'), R.map(r => `<button class="tab ${r.serial === cam.serial ? 'active' : ''}" data-cam="${esc(r.serial)}">${esc(r.name)}</button>`).join('')
+    || '<span class="muted">등록된 로봇이 없습니다. 카메라는 로봇 없이도 연결할 수 있습니다.</span>');
+  const on = !!cam.stream;
+  const recording = !!cam.rec;
+  const v = $('#video'); v.classList.toggle('fall', cam.fall);
+  const tl = $('#camTagL');
+  tl.className = 'tag l ' + (recording ? 'rec' : on ? 'live' : 'off');
+  tl.textContent = recording ? '● REC' : on ? 'LIVE' : '연결 안 됨';
+  $('#camTagR').textContent = on ? `${cam.w || '--'}×${cam.h || '--'} · ${cam.fps || 0}fps` : '';
+  $('#camOff').style.display = on ? 'none' : 'flex';
+  $('#camVideo').style.display = on ? 'block' : 'none';
+  $('#camOverlay').style.display = on ? 'block' : 'none';
+  $('#cPlay').disabled = $('#cShot').disabled = $('#cRec').disabled = !on;
+  $('#cPlay').innerHTML = ic(cam.playing ? 'pause' : 'play', 16);
+  $('#cRec').innerHTML = ic(recording ? 'stop' : 'rec', 16);
+  $('#recTime').textContent = recording ? `녹화 중 ${fmtDur((performance.now() - cam.recT0) / 1000)}` : '';
+  setHTML($('#camInfo'), `<span>해상도</span><span>${on ? `${cam.w}×${cam.h}` : '--'}</span><span>프레임</span><span>${on ? cam.fps + ' fps' : '--'}</span>
+    <span>상태</span><span>${recording ? '녹화 중' : on ? '정상' : '연결 안 됨'}</span><span>쓰러짐 감지</span><span>${!on ? '--' : $('#fallOn').checked ? (cam.landmarker ? '동작 중' : '모델 로딩 중') : '꺼짐'}</span>`);
+  setHTML($('#camFall'), cam.fall ? `<div class="banner red">${ic('alert', 16)} 쓰러진 사람이 감지되었습니다. 지도 화면에도 위치가 표시됩니다.</div>` : '');
+  $('#capCount').textContent = cam.caps.length ? `(${cam.caps.length})` : '';
+  setHTML($('#caps'), cam.caps.length ? `<div class="caps">${cam.caps.slice(0, 6).map((c, i) => `<img src="${c}" data-cap="${i}" title="클릭하면 저장">`).join('')}</div>` : `<div class="empty">${ic('camera', 24)}저장된 캡처가 없습니다.</div>`);
+  $('#camNote').textContent = cam.serial ? '' : '';
+}
+const fmtDur = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+$('#camTabs').onclick = e => { const b = e.target.closest('[data-cam]'); if (b) { cam.serial = b.dataset.cam; renderCamera(); } };
+$('#camSel').onchange = async () => { const d = camDev(); d[cam.serial || '_'] = $('#camSel').value; store.set('camdev', JSON.stringify(d)); if (cam.stream) { camStop(); await camStart(); } };
+$('#camConnect').onclick = () => camStart();
+$('#cPlay').onclick = () => { const v = $('#camVideo'); cam.playing = !cam.playing; cam.playing ? v.play() : v.pause(); renderCamera(); };
+$('#cFull').onclick = () => { const v = $('#video'); document.fullscreenElement ? document.exitFullscreen() : v.requestFullscreen?.(); };
+$('#cShot').onclick = () => {
+  const v = $('#camVideo'); if (!v.videoWidth) return;
+  const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight; c.getContext('2d').drawImage(v, 0, 0);
+  cam.caps.unshift(c.toDataURL('image/jpeg', 0.7)); cam.caps.length = Math.min(cam.caps.length, 12);
+  store.set('caps', JSON.stringify(cam.caps.slice(0, 6))); renderCamera();
+};
+$('#caps').onclick = e => { const i = e.target.closest('[data-cap]'); if (i) download(cam.caps[+i.dataset.cap], `capture_${Date.now()}.jpg`); };
+function download(url, name) { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+$('#cRec').onclick = () => {
+  if (cam.rec) { cam.rec.stop(); return; }
+  if (!cam.stream || typeof MediaRecorder === 'undefined') return;
+  cam.chunks = []; cam.rec = new MediaRecorder(cam.stream); cam.recT0 = performance.now();
+  cam.rec.ondataavailable = e => e.data.size && cam.chunks.push(e.data);
+  cam.rec.onstop = () => { const url = URL.createObjectURL(new Blob(cam.chunks, { type:'video/webm' })); download(url, `record_${Date.now()}.webm`); setTimeout(() => URL.revokeObjectURL(url), 5000); cam.rec = null; renderCamera(); };
+  cam.rec.start(); renderCamera();
+};
+
+async function camStart() {
+  try {
+    const dev = camDev()[cam.serial || '_'] || '';
+    cam.stream = await navigator.mediaDevices.getUserMedia({ video: dev ? { deviceId:{ exact:dev } } : true });
+    const v = $('#camVideo'); v.srcObject = cam.stream; await v.play(); cam.playing = true;
+    const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    $('#camSel').innerHTML = '<option value="">기본 카메라</option>' + cams.map(d => `<option value="${d.deviceId}">${esc(d.label || d.deviceId.slice(0, 8))}</option>`).join('');
+    $('#camSel').value = dev;
+    cam.frames = 0; cam.fpsT = performance.now(); cam.running = true; camLoop();
+  } catch (e) { cam.stream = null; $('#camOff').querySelector('div').textContent = '카메라에 연결할 수 없습니다. (' + (e.message || e.name) + ')'; }
+  renderCamera();
+}
+function camStop() {
+  cam.running = false; cam.rec?.stop(); cam.stream?.getTracks().forEach(t => t.stop()); cam.stream = null; cam.fall = false; cam.hit = cam.miss = 0; renderCamera();
+}
+function camLoop() {
+  if (!cam.running) return;
+  const v = $('#camVideo');
+  if (v.videoWidth) {
+    cam.w = v.videoWidth; cam.h = v.videoHeight;
+    if (cam.playing) {
+      cam.frames++;
+      const now = performance.now();
+      if (now - cam.fpsT >= 1000) { cam.fps = Math.round(cam.frames * 1000 / (now - cam.fpsT)); cam.frames = 0; cam.fpsT = now; }
+    }
+    if (cam.playing && $('#fallOn').checked) detectFall(v);
+    else clearOverlay();
+  }
+  setTimeout(camLoop, 100);
+}
+const clearOverlay = () => { const c = $('#camOverlay'); c.getContext('2d').clearRect(0, 0, c.width, c.height); };
+
+// MediaPipe Pose로 쓰러짐 판정 (브라우저에서 실행, 처음 켤 때 모델을 내려받음)
+const VISION = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+let loadingModel = false;
+async function loadModel() {
+  if (cam.landmarker || loadingModel) return; loadingModel = true;
+  try {
+    const m = await import(`${VISION}/vision_bundle.mjs`);
+    const fs = await m.FilesetResolver.forVisionTasks(`${VISION}/wasm`);
+    cam.landmarker = await m.PoseLandmarker.createFromOptions(fs, { baseOptions:{ modelAssetPath:MODEL }, runningMode:'VIDEO', numPoses:3 });
+  } catch (e) { console.warn('pose model load failed', e); }
+  loadingModel = false;
+}
+function analyzePose(lm, aspect) {    // 몸통이 수평에 가깝고 몸 전체가 가로로 넓으면 쓰러짐
+  const ok = i => (lm[i].visibility ?? 1) > 0.4;
+  if (![11, 12, 23, 24].every(오케이)) return { fallen:false };
+  const sh = { x:(lm[11].x + lm[12].x) / 2, y:(lm[11].y + lm[12].y) / 2 }, hp = { x:(lm[23].x + lm[24].x) / 2, y:(lm[23].y + lm[24].y) / 2 };
+  const tilt = Math.atan2(Math.abs(sh.x - hp.x) * aspect, Math.abs(sh.y - hp.y)) * 180 / Math.PI;
+  const pts = lm.filter((_, i) => ok(i));
+  const x0 = Math.min(...pts.map(p => p.x)), x1 = Math.max(...pts.map(p => p.x)), y0 = Math.min(...pts.map(p => p.y)), y1 = Math.max(...pts.map(p => p.y));
+  return { fallen: tilt > 55 && (x1 - x0) * aspect > (y1 - y0), box:[x0, y0, x1 - x0, y1 - y0] };
+}
+function detectFall(v) {
+  if (!cam.landmarker) { loadModel(); return; }
+  const c = $('#camOverlay'), ctx = c.getContext('2d');
+  c.width = v.videoWidth; c.height = v.videoHeight; ctx.clearRect(0, 0, c.width, c.height);
+  const res = cam.landmarker.detectForVideo(v, performance.now());
+  let any = false;
+  for (const lm of res.landmarks) {
+    const r = analyzePose(lm, v.videoWidth / v.videoHeight);
+    if (r.box) { ctx.strokeStyle = r.fallen ? '#ff3355' : '#4cc9f0'; ctx.lineWidth = 4; ctx.strokeRect(r.box[0] * c.width, r.box[1] * c.height, r.box[2] * c.width, r.box[3] * c.height); }
+    any ||= r.fallen;
+  }
+  if (any) { cam.hit++; cam.miss = 0; } else if (++cam.miss >= 12) cam.hit = 0;
+  const was = cam.fall;
+  cam.fall = cam.hit >= 6;
+  if (cam.fall) reportFall(cam.serial);
+  if (cam.fall !== was) renderCamera();
+}
+
+// ====================================================================== 지도 (3D 씬 + 미니맵)
+const M = { inited:false, robots:{}, falls:[], sel:null, renderer:null, scene:null, camera:null, controls:null };
+const mini = $('#miniMap'), mctx = mini.getContext('2d');
+const _fwd = THREE_OK() ? new THREE.Vector3() : null, _want = THREE_OK() ? new THREE.Vector3() : null, _look = THREE_OK() ? new THREE.Vector3() : null;
+function THREE_OK() { return typeof THREE !== 'undefined' && typeof THREE.OrbitControls !== 'undefined'; }
+
+function initMap() {
+  if (M.inited) return;
+  if (!THREE_OK()) { const m = $('#mapMsg'); m.style.display = 'grid'; m.textContent = '3D 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 실행해주세요.'; M.inited = true; return; }
+  M.inited = true;
+  const sc = M.scene = new THREE.Scene();
+  sc.background = new THREE.Color(0x10131a); sc.fog = new THREE.Fog(0x10131a, 6, 30);
+  M.camera = new THREE.PerspectiveCamera(50, 1, 0.01, 200); M.camera.position.set(-0.8, 0.9, 0.9);
+  const rd = M.renderer = new THREE.WebGLRenderer({ antialias:true }); rd.setPixelRatio(devicePixelRatio);
+  $('#mapview').appendChild(rd.domElement);
+  M.controls = new THREE.OrbitControls(M.camera, rd.domElement); M.controls.enableDamping = true;
+  sc.add(new THREE.GridHelper(40, 80, 0x3a4152, 0x22262f), new THREE.AxesHelper(0.3), new THREE.HemisphereLight(0xffffff, 0x223344, 1.1));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.8); sun.position.set(2, 4, 2); sc.add(해);
+  new ResizeObserver(resizeMap).observe($('#mapwrap'));
+  requestAnimationFrame(mapLoop);
+}
+function resizeMap() {
+  if (!M.renderer) return;
+  const w = $('#mapview').clientWidth, h = $('#mapview').clientHeight; if (!w || !h) return;
+  M.renderer.setSize(w, h); M.camera.aspect = w / h; M.camera.updateProjectionMatrix();
+}
+function labelSprite(text, color) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64; const g = c.getContext('2d');
+  g.fillStyle = 'rgba(16,19,26,.75)'; g.roundRect?.(0, 8, 256, 48, 12); g.fill?.(); g.font = 'bold 28px sans-serif'; g.fillStyle = color; g.textAlign = 'center'; g.fillText(text, 128, 42);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map:new THREE.CanvasTexture(c), depthTest:false })); s.scale.set(0.4, 0.1, 1); return s;
+}
+function makeMapRobot(r) {
+  const color = new THREE.Color(robotColor(r.serial)), g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.14), new THREE.MeshStandardMaterial({ color, roughness:.5 })); body.position.y = 0.06; g.add(body);
+  [-0.08, 0.08].forEach(z => { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.033, 0.033, 0.02, 24), new THREE.MeshStandardMaterial({ color:0x222831 })); w.rotation.x = Math.PI / 2; w.position.set(0, 0.033, z); g.add(w); });
+  g.add(new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0.1, 0.12, 0), 0.35, 0xffb703, 0.1, 0.07));
+  const lab = labelSprite(r.name, '#fff'); lab.position.y = 0.4; g.add(lab);
+  M.scene.add(g);
+  const MAX = 20000, pos = new Float32Array(MAX * 3), geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setDrawRange(0, 0);
+  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color })); line.frustumCulled = false; M.scene.add(line);
+  return { g, line, geo, pos, MAX, n:0, lx:null, ly:null, pose:{ x:0, y:0, th:0 }, goal:{ x:0, y:0, th:0 }, gen:r.gen, name:r.name };
+}
+function addTrail(mr, x, y) {
+  if (mr.lx !== null && Math.hypot(x - mr.lx, y - mr.ly) < 0.005) return;
+  if (mr.n >= mr.MAX) { mr.pos.copyWithin(0, 3); mr.n--; }
+  mr.pos.set([x, 0.01, -y], mr.n * 3); mr.n++; mr.lx = x; mr.ly = y;
+  mr.geo.setDrawRange(0, mr.n); mr.geo.attributes.position.needsUpdate = true;
+}
+function clearTrail(mr) { mr.n = 0; mr.lx = mr.ly = null; mr.geo.setDrawRange(0, 0); }
+
+function syncMap() {                       // 파이썬 상태 → 지도 객체 동기화 (지도 화면이 아니어도 궤적은 계속 쌓는다)
+  if (!S) return;
+  const sel = $('#mapSel');
+  const opts = S.robots.map(r => `<option value="${esc(r.serial)}">${esc(r.name)}</option>`).join('') || '<option value="">로봇 없음</option>';
+  if (sel._h !== opts) { sel.innerHTML = opts; sel._h = opts; if (M.sel) sel.value = M.sel; }
+  if (!S.robots.some(r => r.serial === M.sel)) { M.sel = S.robots[0]?.serial ?? null; sel.value = M.sel ?? ''; }
+  if (!M.scene) return;
+  const live = new Set(S.robots.map(r => r.serial));
+  for (const sn of Object.keys(M.robots)) if (!live.has(sn)) { M.scene.remove(M.robots[sn].g, M.robots[sn].line); delete M.robots[sn]; }
+  for (const r of S.robots) {
+    let mr = M.robots[r.serial];
+    if (!mr) mr = M.robots[r.serial] = makeMapRobot(r);
+    if (mr.gen !== r.gen) { mr.gen = r.gen; clearTrail(mr); mr.pose = { x:0, y:0, th:0 }; M.falls.forEach(f => M.scene.remove(f.g)); M.falls.length = 0; }
+    Object.assign(mr.goal, { x:r.odo.x, y:r.odo.y, th:r.odo.th });
+    if (r.age !== null) addTrail(mr, r.odo.x, r.odo.y);
+  }
+  const s = M.robots[M.sel], r = S.robots.find(q => q.serial === M.sel);
+  $('#mapHud').innerHTML = r ? `<b>${esc(r.name)}</b><br>X <b>${r.odo.x.toFixed(2)}</b> m · Y <b>${r.odo.y.toFixed(2)}</b> m<br>방향 <b>${(((r.odo.th * 180 / Math.PI) % 360 + 360) % 360).toFixed(0)}</b>°<br>엔코더 L <b>${r.odo.l}</b> / R <b>${r.odo.r}</b>` : '등록된 로봇이 없습니다.';
+  const msg = $('#mapMsg');
+  if (THREE_OK()) { msg.style.display = S.robots.length ? 'none' : 'grid'; if (!S.robots.length) msg.textContent = '등록된 로봇이 없습니다. 로봇등록에서 로봇을 추가하세요.'; }
+}
+
+function reportFall(serial) {
+  const mr = M.robots[serial]; if (!mr || !M.scene) return;
+  const fx = mr.goal.x + Math.cos(mr.goal.th), fy = mr.goal.y + Math.sin(mr.goal.th);     // 거리는 추정값(로봇 앞 1 m)
+  if (M.falls.some(f => Math.hypot(f.x - fx, f.y - fy) < 0.8)) return;
+  const g = new THREE.Group(), mat = new THREE.MeshBasicMaterial({ color:0xff3355 });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.28, 40), mat); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.012;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.5, 8), mat); pole.position.y = 0.25;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 16), mat); head.position.y = 0.53;
+  g.add(ring, pole, head); g.position.set(fx, 0, -fy); M.scene.add(g);
+  M.falls.push({ x:fx, y:fy, g, t:performance.now() });
+}
+
+function mapLoop(ts) {
+  requestAnimationFrame(mapLoop);
+  if (page !== 'map' || !M.renderer) return;
+  for (const mr of Object.values(M.robots)) {         // 30Hz 업데이트를 60fps로 부드럽게 보간
+    const k = 0.25, p = mr.pose, g = mr.goal;
+    if (Math.hypot(g.x - p.x, g.y - p.y) > 1) Object.assign(p, g);
+    p.x += (g.x - p.x) * k; p.y += (g.y - p.y) * k; p.th += (g.th - p.th) * k;
+    mr.g.position.set(p.x, 0, -p.y); mr.g.rotation.y = p.th;
+  }
+  const t = M.robots[M.sel];
+  if (t && $('#follow').checked) {                    // 3인칭 추적: 로봇 뒤 위쪽
+    _fwd.set(Math.cos(t.pose.th), 0, -Math.sin(t.pose.th));
+    _want.copy(t.g.position).addScaledVector(_fwd, -1.1); _want.y += 0.6;
+    M.camera.position.lerp(_want, 0.08);
+    _look.copy(t.g.position).addScaledVector(_fwd, 0.4); _look.y = 0.05;
+    M.camera.lookAt(_look); M.controls.target.copy(_look);
+  } else M.controls.update();
+  M.renderer.render(M.scene, M.camera);
+  drawMini();
+  $('#fallBanner').classList.toggle('show', M.falls.some(f => performance.now() - f.t < 8000));
+}
+
+function drawMini() {
+  const W = mini.width, H = mini.height, pad = 18, bots = Object.values(M.robots);
+  let x0 = 0, x1 = 0, y0 = 0, y1 = 0;
+  const ext = (x, y) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); };
+  bots.forEach(b => { ext(b.pose.x, b.pose.y); for (let i = 0; i < b.n; i++) ext(b.pos[i * 3], -b.pos[i * 3 + 2]); });
+  M.falls.forEach(f => ext(f.x, f.y));
+  const span = Math.max(x1 - x0, y1 - y0, 1), s = (W - pad * 2) / span, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const sx = x => W / 2 + (x - cx) * s, sy = y => H / 2 - (y - cy) * s;
+  mctx.clearRect(0, 0, W, H); mctx.fillStyle = 'rgba(255,255,255,.95)'; mctx.fillRect(0, 0, W, H);
+  const raw = span / 4, mag = Math.pow(10, Math.floor(Math.log10(raw))), step = [1, 2, 5, 10].map(m => m * mag).find(v => v >= raw);
+  mctx.strokeStyle = '#e6e9f0'; mctx.lineWidth = 1; mctx.beginPath();
+  for (let gx = Math.ceil((cx - W / s) / step) * step; gx < cx + W / s; gx += step) { mctx.moveTo(sx(gx), 0); mctx.lineTo(sx(gx), H); }
+  for (let gy = Math.ceil((cy - H / s) / step) * step; gy < cy + H / s; gy += step) { mctx.moveTo(0, sy(gy)); mctx.lineTo(W, sy(gy)); }
+  mctx.stroke();
+  bots.forEach((b, i) => {
+    const col = robotColor(Object.keys(M.robots)[i]);
+    if (b.n > 1) { mctx.strokeStyle = col; mctx.lineWidth = 2; mctx.beginPath(); for (let k = 0; k < b.n; k++) { const x = sx(b.pos[k * 3]), y = sy(-b.pos[k * 3 + 2]); k ? mctx.lineTo(x, y) : mctx.moveTo(x, y); } mctx.stroke(); }
+    mctx.save(); mctx.translate(sx(b.pose.x), sy(b.pose.y)); mctx.rotate(-b.pose.th); mctx.fillStyle = col;
+    mctx.beginPath(); mctx.moveTo(9, 0); mctx.lineTo(-6, 6); mctx.lineTo(-6, -6); mctx.closePath(); mctx.fill(); mctx.restore();
+  });
+  mctx.fillStyle = '#98a2b3'; mctx.beginPath(); mctx.arc(sx(0), sy(0), 3, 0, 7); mctx.fill();
+  M.falls.forEach(f => { const x = sx(f.x), y = sy(f.y); mctx.strokeStyle = '#e11d48'; mctx.fillStyle = 'rgba(225,29,72,.25)'; mctx.lineWidth = 2; mctx.beginPath(); mctx.arc(x, y, 8, 0, 7); mctx.fill(); mctx.stroke(); mctx.fillStyle = '#e11d48'; mctx.font = 'bold 11px sans-serif'; mctx.textAlign = 'center'; mctx.fillText('!', x, y + 4); mctx.textAlign = 'left'; });
+  mctx.fillStyle = '#8a93a6'; mctx.font = '11px sans-serif'; mctx.fillText(`격자 ${step} m`, 8, H - 8);
+}
+
+// 지도 화면 컨트롤
+$('#mapSel').onchange = e => { M.sel = e.target.value; };
+$('#mapSetBtn').onclick = () => {
+  const o = $('#mapSettings'); o.classList.toggle('open');
+  if (o.classList.contains('open') && S) { $('#pTpr').value = S.params.tpr; $('#pDia').value = S.params.dia; $('#pBase').value = S.params.base; }
+};
+['#pTpr', '#pDia', '#pBase'].forEach(id => $(id).onchange = () => pywebview.api.set_params($('#pTpr').value, $('#pDia').value, $('#pBase').value));
+$('#clearTrail').onclick = () => { Object.values(M.robots).forEach(clearTrail); M.falls.forEach(f => M.scene?.remove(f.g)); M.falls.length = 0; };
+$('#mAdd').onclick = () => pywebview.api.inject(M.sel, $('#mL').value, $('#mR').value, true);
+$('#mSet').onclick = () => pywebview.api.inject(M.sel, $('#mL').value, $('#mR').value, false);
+$('#mReset').onclick = () => pywebview.api.reset_pose(M.sel);
+
+// ====================================================================== 시작
+window.addEventListener('pywebviewready', async () => {
+  await refreshPorts();
+  go(page);
+  poll();
+});
+go(page);
+</script>
+</body>
+</html>
