@@ -189,14 +189,18 @@
   }
   ::-webkit-scrollbar { width:8px; height:8px; } ::-webkit-scrollbar-thumb { background:#d5d9e3; border-radius:8px; }
 
+  .cam-grid { grid-template-columns:minmax(0,1fr) 360px; }
   .video img { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
   .detect-box { margin-top:12px; border:1px solid var(--line); border-radius:12px; padding:12px 14px; background:var(--soft); display:flex; flex-direction:column; gap:8px; }
   .detect-now { display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:10px; font-weight:700; font-size:14px; background:#fff; border:1px solid var(--line); color:var(--muted); }
   .detect-now.found { background:var(--green-soft); border-color:#86efac; color:var(--green); }
-  .detect-list { display:flex; flex-direction:column; gap:4px; max-height:120px; overflow-y:auto; font-size:13px; }
+  .detect-list { display:flex; flex-direction:column; gap:4px; max-height:130px; overflow-y:auto; font-size:13px; }
   .detect-item { display:flex; align-items:center; justify-content:space-between; background:#fff; padding:6px 10px; border-radius:8px; border:1px solid var(--line); }
+  .caps { display:flex; flex-direction:column; gap:12px; margin-top:10px; max-height:460px; overflow-y:auto; padding-right:4px; }
+  .cap-card { border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff; flex:none; }
+  .cap-card img { width:100%; aspect-ratio:16/10; object-fit:cover; display:block; cursor:pointer; }
+  .cap-meta { padding:7px 10px; font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:space-between; border-top:1px solid var(--line); background:var(--soft); }
 </style>
-
 </head>
 <body>
 <div class="app" id="app">
@@ -363,11 +367,7 @@ content.innerHTML = `
       </div>
       <div class="detect-box">
         <div class="detect-now" id="detectNow"><span>카메라를 연결하면 사람 감지를 시작합니다.</span></div>
-        <div class="row">
-          <span class="muted" style="font-weight:600">사람 발견 기록 (초 단위)</span>
-          <span class="grow"></span>
-          <button class="btn" id="clearDetLog" style="height:26px;padding:0 10px;font-size:12px">기록 지우기</button>
-        </div>
+        <div class="row"><span class="muted" style="font-weight:600">사람 발견 기록</span><span class="grow"></span><button class="btn" id="clearDetLog" style="height:26px;padding:0 10px;font-size:12px">기록 지우기</button></div>
         <div class="detect-list" id="detectList"><div class="muted" style="padding:4px 2px">아직 발견 기록이 없습니다.</div></div>
       </div>
     </div>
@@ -645,152 +645,101 @@ async function poll() {
 
 // ====================================================================== 카메라 + 로컬 AI 레고 감지
 const API_BASE = location.port === '8000' ? '' : 'http://127.0.0.1:8000';
-const cam = { serial:null, active:false, playing:true, caps:[], fps:0, w:0, h:0, camIdx:1, count:0, boxes:[], logs:[], lastLogTime:0, lastCount:0 };
+const cam = { serial:null, active:false, playing:true, caps:[], fps:0, w:0, h:0, camIdx:1, count:0, boxes:[], logs:[], wasDetected:false, lockUntil:0, lastLogSec:'', activeEventMsg:'', captureTimer:null };
 try { cam.caps = JSON.parse(store.get('caps', '[]')); } catch {}
 $('#cPlay').innerHTML = ic('pause', 16); $('#cShot').innerHTML = ic('camera', 16); $('#cRec').innerHTML = ic('rec', 16); $('#cFull').innerHTML = ic('full', 16);
+$('#btnShutdown').onclick = async () => { if (!confirm('서버를 종료할까요?')) return; try { await fetch(`${API_BASE}/api/shutdown`); } catch {} document.body.innerHTML = '<div style="display:grid;place-items:center;height:100vh;font-size:18px;font-weight:700">서버가 종료되었습니다.</div>'; };
+const fmtTime = (d = new Date()) => `${d.getHours()}시 ${String(d.getMinutes()).padStart(2,'0')}분 ${String(d.getSeconds()).padStart(2,'0')}초`;
+function camPageShown() { if (!cam.serial || !S?.robots.some(r => r.serial === cam.serial)) cam.serial = S?.robots[0]?.serial ?? null; }
 
-$('#btnShutdown').onclick = async () => {
-  if (!confirm('로컬 카메라 서버를 종료할까요?')) return;
-  try { await fetch(`${API_BASE}/api/shutdown`); } catch {}
-  document.body.innerHTML = '<div style="display:grid;place-items:center;height:100vh;font-size:18px;font-weight:700">서버가 종료되었습니다. 창을 닫으셔도 됩니다.</div>';
-};
-
-function formatKoreanTime(d = new Date()) {
-  const hh = d.getHours();
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  const ss = String(d.getSeconds()).padStart(2, '0');
-  return `${hh}시 ${mm}분 ${ss}초`;
-}
-function camPageShown() {
-  if (!cam.serial || !S?.robots.some(r => r.serial === cam.serial)) cam.serial = S?.robots[0]?.serial ?? null;
+function capturePhoto(tStr = '', replaceLatest = false) {
+  const img = $('#camImg'); if (!img || !cam.active) return;
+  const c = document.createElement('canvas'); c.width = cam.w || 1280; c.height = cam.h || 720;
+  const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, c.width, c.height);
+  if ($('#fallOn').checked && cam.boxes.length > 0) {
+    const b = cam.boxes[0]; ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 4; ctx.strokeRect(b.x, b.y, b.w, b.h);
+  }
+  const item = { url: c.toDataURL('image/jpeg', 0.8), time: tStr || fmtTime() };
+  if (replaceLatest && cam.caps.length > 0) cam.caps[0] = item; else cam.caps.unshift(item);
+  cam.caps.length = Math.min(cam.caps.length, 20);
+  try { store.set('caps', JSON.stringify(cam.caps.slice(0, 6))); } catch {}
+  renderCamera();
 }
 function renderDetectArea() {
-  const nowEl = $('#detectNow'), listEl = $('#detectList');
-  if (!nowEl || !listEl) return;
-  if (!cam.active) {
-    nowEl.className = 'detect-now';
-    setHTML(nowEl, `${ic('info', 18)} <span>카메라를 연결하면 사람 감지를 시작합니다.</span>`);
-  } else if (cam.count > 0 && $('#fallOn').checked) {
-    nowEl.className = 'detect-now found';
-    setHTML(nowEl, `${ic('check', 18)} <span>${formatKoreanTime()} 사람 발견 (${cam.count}명 감지됨)</span>`);
-  } else {
-    nowEl.className = 'detect-now';
-    const last = cam.logs[0];
-    setHTML(nowEl, `${ic('info', 18)} <span>${last ? `현재 미감지 (최근: ${esc(last.msg)})` : '감지 대기 중 — 발견된 사람 없음'}</span>`);
-  }
-  setHTML(listEl, cam.logs.length
-    ? cam.logs.map(it => `<div class="detect-item"><strong>${esc(it.msg)}</strong><span class="badge b-green">${it.count}명</span></div>`).join('')
-    : `<div class="muted" style="padding:4px 2px">아직 발견 기록이 없습니다.</div>`);
+  const nowEl = $('#detectNow'), listEl = $('#detectList'); if (!nowEl || !listEl) return;
+  if (!cam.active) { nowEl.className = 'detect-now'; setHTML(nowEl, `${ic('info', 18)} <span>카메라를 연결하면 사람 감지를 시작합니다.</span>`); }
+  else if (cam.count > 0 && $('#fallOn').checked) { nowEl.className = 'detect-now found'; setHTML(nowEl, `${ic('check', 18)} <span>${esc(cam.activeEventMsg)} (3초 정지 감지)</span>`); }
+  else { nowEl.className = 'detect-now'; const last = cam.logs[0]; setHTML(nowEl, `${ic('info', 18)} <span>${last ? `현재 미감지 (최근: ${esc(last.msg)})` : '감지 대기 중'}</span>`); }
+  setHTML(listEl, cam.logs.length ? cam.logs.map(it => `<div class="detect-item"><strong>${esc(it.msg)}</strong><span class="badge b-green">발견됨</span></div>`).join('') : `<div class="muted" style="padding:4px 2px">아직 발견 기록이 없습니다.</div>`);
 }
 function renderCamera() {
   const R = S?.robots ?? [];
-  if (!cam.serial || !R.some(r => r.serial === cam.serial)) cam.serial = R[0]?.serial ?? null;
-  setHTML($('#camTabs'), R.map(r => `<button class="tab ${r.serial === cam.serial ? 'active' : ''}" data-cam="${esc(r.serial)}">${esc(r.name)}</button>`).join('')
-    || '<span class="muted">로컬 카메라 AI 감지 모드</span>');
+  setHTML($('#camTabs'), R.map(r => `<button class="tab ${r.serial === cam.serial ? 'active' : ''}" data-cam="${esc(r.serial)}">${esc(r.name)}</button>`).join('') || '<span class="muted">로컬 카메라 AI 감지 모드</span>');
   const on = cam.active;
-  const v = $('#video'); v.classList.toggle('fall', on && cam.count > 0);
-  const tl = $('#camTagL');
-  tl.className = 'tag l ' + (on ? 'live' : 'off');
-  tl.textContent = on ? 'LIVE' : '연결 안 됨';
+  $('#video').classList.toggle('fall', on && cam.count > 0);
+  const tl = $('#camTagL'); tl.className = 'tag l ' + (on ? 'live' : 'off'); tl.textContent = on ? 'LIVE' : '연결 안 됨';
   $('#camTagR').textContent = on ? `카메라 #${cam.camIdx} · ${cam.w || '--'}×${cam.h || '--'} · ${cam.fps || 0}fps` : '';
-  $('#camOff').style.display = on ? 'none' : 'flex';
-  $('#camImg').style.display = on ? 'block' : 'none';
-  $('#camOverlay').style.display = on ? 'block' : 'none';
+  $('#camOff').style.display = on ? 'none' : 'flex'; $('#camImg').style.display = on ? 'block' : 'none'; $('#camOverlay').style.display = on ? 'block' : 'none';
   $('#cPlay').disabled = $('#cShot').disabled = $('#cRec').disabled = !on;
-  $('#cPlay').innerHTML = ic(cam.playing ? 'pause' : 'play', 16);
-  $('#cRec').innerHTML = ic(on ? 'stop' : 'rec', 16);
-  setHTML($('#camInfo'), `<span>해상도</span><span>${on ? `${cam.w}×${cam.h}` : '--'}</span><span>프레임</span><span>${on ? cam.fps + ' fps' : '--'}</span>
-    <span>상태</span><span>${on ? (cam.count > 0 ? `사람 ${cam.count}명 발견` : '감시 중') : '연결 안 됨'}</span><span>AI 감지</span><span>${!on ? '--' : $('#fallOn').checked ? '동작 중' : '꺼짐'}</span>`);
-  setHTML($('#camFall'), (on && cam.count > 0) ? `<div class="banner green">${ic('check', 16)} ${formatKoreanTime()} 사람 발견 (${cam.count}명)</div>` : '');
-  $('#capCount').textContent = cam.caps.length ? `(${cam.caps.length})` : '';
-  setHTML($('#caps'), cam.caps.length ? `<div class="caps">${cam.caps.slice(0, 6).map((c, i) => `<img src="${c}" data-cap="${i}" title="클릭하면 저장">`).join('')}</div>` : `<div class="empty">${ic('camera', 24)}저장된 캡처가 없습니다.</div>`);
+  $('#cPlay').innerHTML = ic(cam.playing ? 'pause' : 'play', 16); $('#cRec').innerHTML = ic(on ? 'stop' : 'rec', 16);
+  setHTML($('#camInfo'), `<span>해상도</span><span>${on ? `${cam.w}×${cam.h}` : '--'}</span><span>프레임</span><span>${on ? cam.fps + ' fps' : '--'}</span><span>상태</span><span>${on ? (cam.count > 0 ? '사람 발견' : '감시 중') : '연결 안 됨'}</span><span>AI 감지</span><span>${!on ? '--' : $('#fallOn').checked ? '동작 중' : '꺼짐'}</span>`);
+  setHTML($('#camFall'), (on && cam.count > 0) ? `<div class="banner green">${ic('check', 16)} ${esc(cam.activeEventMsg)}</div>` : '');
+  $('#capCount').textContent = cam.caps.length ? `(${cam.caps.length}장)` : '';
+  setHTML($('#caps'), cam.caps.length ? `<div class="caps">${cam.caps.map((c, i) => {
+    const src = typeof c === 'string' ? c : c.url, t = typeof c === 'string' ? '캡처 사진' : c.time;
+    return `<div class="cap-card"><img src="${src}" data-cap-save="${i}" title="클릭하면 저장"><div class="cap-meta"><span>${esc(t)}</span><button class="btn" data-cap-save="${i}" style="height:24px;padding:0 8px;font-size:11px">저장</button></div></div>`;
+  }).join('')}</div>` : `<div class="empty">${ic('camera', 24)}저장된 캡처가 없습니다.</div>`);
   renderDetectArea();
 }
-$('#camTabs').onclick = e => { const b = e.target.closest('[data-cam]'); if (b) { cam.serial = b.dataset.cam; renderCamera(); } };
 $('#camSel').onchange = async () => { if (cam.active) await camStart(); };
 $('#camConnect').onclick = () => camStart();
 $('#cRec').onclick = () => { if (cam.active) camStop(); };
-$('#cPlay').onclick = () => { cam.playing = !cam.playing; const img = $('#camImg'); if (cam.playing) img.src = `${API_BASE}/video_feed?t=${Date.now()}`; renderCamera(); };
-$('#clearDetLog').onclick = () => { cam.logs = []; renderDetectArea(); };
+$('#cPlay').onclick = () => { cam.playing = !cam.playing; if (cam.playing) $('#camImg').src = `${API_BASE}/video_feed?t=${Date.now()}`; renderCamera(); };
+$('#clearDetLog').onclick = () => { cam.logs = []; cam.lastLogSec = ''; renderDetectArea(); };
 $('#cFull').onclick = () => { const v = $('#video'); document.fullscreenElement ? document.exitFullscreen() : v.requestFullscreen?.(); };
-$('#cShot').onclick = () => {
-  const img = $('#camImg'); if (!img || !cam.active) return;
-  const c = document.createElement('canvas'); c.width = cam.w || 1280; c.height = cam.h || 720;
-  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-  cam.caps.unshift(c.toDataURL('image/jpeg', 0.75)); cam.caps.length = Math.min(cam.caps.length, 12);
-  store.set('caps', JSON.stringify(cam.caps.slice(0, 6))); renderCamera();
-};
-$('#caps').onclick = e => { const i = e.target.closest('[data-cap]'); if (i) download(cam.caps[+i.dataset.cap], `capture_${Date.now()}.jpg`); };
-function download(url, name) { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+$('#cShot').onclick = () => capturePhoto(fmtTime(), false);
+$('#caps').onclick = e => { const el = e.target.closest('[data-cap-save]'); if (!el) return; const it = cam.caps[+el.dataset.capSave]; if (it) { const a = document.createElement('a'); a.href = typeof it === 'string' ? it : it.url; a.download = `capture_${Date.now()}.jpg`; a.click(); } };
 
 function drawBoxes() {
-  const cv = $('#camOverlay'), box = $('#video');
-  if (!cv || !box || !cam.w || !cam.h) return;
-  const cw = box.clientWidth, ch = box.clientHeight;
-  if (!cw || !ch) return;
-  cv.width = cw; cv.height = ch;
-  const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, cw, ch);
+  const cv = $('#camOverlay'), box = $('#video'); if (!cv || !box || !cam.w || !cam.h) return;
+  const cw = box.clientWidth, ch = box.clientHeight; if (!cw || !ch) return;
+  cv.width = cw; cv.height = ch; const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, cw, ch);
   if (!$('#fallOn').checked || !cam.boxes.length) return;
-  const scale = Math.min(cw / cam.w, ch / cam.h);
-  const offX = (cw - cam.w * scale) / 2, offY = (ch - cam.h * scale) / 2;
-  cam.boxes.forEach(b => {
-    const rx = offX + b.x * scale, ry = offY + b.y * scale, rw = b.w * scale, rh = b.h * scale;
-    ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 3; ctx.strokeRect(rx, ry, rw, rh);
-    const label = `사람 ${Math.round(b.prob * 100)}%`;
-    ctx.font = 'bold 13px sans-serif';
-    const tw = ctx.measureText(label).width + 12;
-    ctx.fillStyle = '#16a34a'; ctx.fillRect(rx, Math.max(0, ry - 22), tw, 22);
-    ctx.fillStyle = '#fff'; ctx.fillText(label, rx + 6, Math.max(15, ry - 6));
-  });
+  const s = Math.min(cw / cam.w, ch / cam.h), ox = (cw - cam.w * s) / 2, oy = (ch - cam.h * s) / 2, b = cam.boxes[0];
+  ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 3; ctx.strokeRect(ox + b.x * s, oy + b.y * s, b.w * s, b.h * s);
+  const lbl = `사람 발견 ${Math.round(b.prob * 100)}%`; ctx.font = 'bold 13px sans-serif';
+  ctx.fillStyle = '#16a34a'; ctx.fillRect(ox + b.x * s, Math.max(0, oy + b.y * s - 22), ctx.measureText(lbl).width + 12, 22);
+  ctx.fillStyle = '#fff'; ctx.fillText(lbl, ox + b.x * s + 6, Math.max(15, oy + b.y * s - 6));
 }
 async function camStart() {
-  try {
-    const idx = $('#camSel').value || '1';
-    $('#camOff').querySelector('div').textContent = '카메라와 AI 모델을 연결하는 중...';
-    await fetch(`${API_BASE}/api/cam_start?idx=${idx}`);
-    cam.active = true; cam.playing = true;
-    $('#camImg').src = `${API_BASE}/video_feed?t=${Date.now()}`;
-    camLoop();
-  } catch (e) { cam.active = false; $('#camOff').querySelector('div').textContent = '연결 실패: ' + (e.message || e); }
-  renderCamera();
+  try { await fetch(`${API_BASE}/api/cam_start?idx=${$('#camSel').value || '1'}`); cam.active = true; cam.playing = true; $('#camImg').src = `${API_BASE}/video_feed?t=${Date.now()}`; camLoop(); }
+  catch (e) { cam.active = false; } renderCamera();
 }
-async function camStop() {
-  cam.active = false; cam.count = 0; cam.boxes = [];
-  $('#camImg').src = '';
-  try { await fetch(`${API_BASE}/api/cam_stop`); } catch {}
-  renderCamera();
-}
+async function camStop() { cam.active = false; cam.count = 0; cam.boxes = []; cam.wasDetected = false; $('#camImg').src = ''; try { await fetch(`${API_BASE}/api/cam_stop`); } catch {} renderCamera(); }
 async function camLoop() {
   if (!cam.active) return;
   try {
-    const r = await fetch(`${API_BASE}/api/cam_status`);
-    const res = await r.json();
-    if (res.error) { cam.active = false; $('#camOff').querySelector('div').textContent = res.error; renderCamera(); return; }
+    const res = await (await fetch(`${API_BASE}/api/cam_status`)).json();
     if (res.ok) {
-      cam.w = res.w; cam.h = res.h; cam.fps = res.fps; cam.camIdx = res.cam_idx;
-      $('#camSel').value = String(res.cam_idx);
-      const on = $('#fallOn').checked;
-      cam.boxes = on ? (res.boxes || []) : [];
-      cam.count = on ? (res.count || 0) : 0;
+      cam.w = res.w; cam.h = res.h; cam.fps = res.fps; cam.camIdx = res.cam_idx; $('#camSel').value = String(res.cam_idx);
+      cam.boxes = ($('#fallOn').checked && res.boxes?.length) ? [res.boxes[0]] : []; cam.count = cam.boxes.length;
+      const nowMs = Date.now();
       if (cam.count > 0) {
-        const nowMs = Date.now();
-        if (cam.lastCount !== cam.count || nowMs - cam.lastLogTime > 5000) {
-          cam.logs.unshift({ msg: `${formatKoreanTime()} 사람 발견`, count: cam.count });
-          if (cam.logs.length > 50) cam.logs.length = 50;
-          cam.lastLogTime = nowMs;
+        const tStr = fmtTime(new Date(nowMs));
+        if (!cam.wasDetected && nowMs >= cam.lockUntil && tStr !== cam.lastLogSec) {
+          const msg = `${tStr} 사람 발견`; cam.activeEventMsg = msg; cam.lastLogSec = tStr; cam.lockUntil = nowMs + 3500;
+          cam.logs.unshift({ msg }); if (cam.logs.length > 50) cam.logs.length = 50;
+          capturePhoto(tStr, false);
+          clearTimeout(cam.captureTimer);
+          cam.captureTimer = setTimeout(() => { if (cam.active && cam.count > 0) capturePhoto(tStr, true); }, 1000);
         }
-        cam.lastCount = cam.count;
-        reportFall(cam.serial);
-      } else {
-        cam.lastCount = 0;
-      }
-      drawBoxes();
-      renderCamera();
+        cam.wasDetected = true;
+      } else if (nowMs >= cam.lockUntil) cam.wasDetected = false;
+      drawBoxes(); renderCamera();
     }
   } catch {}
   setTimeout(camLoop, 150);
 }
-
 // ====================================================================== 지도 (3D 씬 + 미니맵)
 const M = { inited:false, robots:{}, falls:[], sel:null, renderer:null, scene:null, camera:null, controls:null };
 const mini = $('#miniMap'), mctx = mini.getContext('2d');

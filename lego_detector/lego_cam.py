@@ -9,8 +9,7 @@ import torch.nn as nn
 import numpy as np
 from torchvision import models
 
-CONF_THRESHOLD = 0.90  # 레고 판별 확신도 기준
-MERGE_RATIO = 0.65     # 1명은 하나로 합치고, 떨어진 2명은 별도 인원으로 분리
+CONF_THRESHOLD = 0.88  # 레고 판별 확신도 기준
 
 class LegoCameraDetector:
     def __init__(self, model_path="lego_classifier.pth"):
@@ -35,6 +34,11 @@ class LegoCameraDetector:
 
         self.mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
         self.std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+        # 단일 박스 흔들림 방지(시간축 안정화) 변수
+        self.pos_streak = 0
+        self.neg_streak = 0
+        self.active_box = None
 
         self.lock = threading.Lock()
         self.running = False
@@ -68,29 +72,33 @@ class LegoCameraDetector:
         cap.release()
         return None
 
-    def _merge_detections(self, hits, patch_w):
-        if not hits:
-            return []
-        hits = sorted(hits, key=lambda item: item[2], reverse=True)
-        merge_dist = patch_w * MERGE_RATIO
-        clusters = []
-
-        for cx, cy, prob in hits:
-            weight = prob ** 2
-            matched = None
-            for c in clusters:
-                if math.hypot(cx - c["cx"], cy - c["cy"]) <= merge_dist:
-                    matched = c
-                    break
-            if matched is not None:
-                tw = matched["weight"] + weight
-                matched["cx"] = (matched["cx"] * matched["weight"] + cx * weight) / tw
-                matched["cy"] = (matched["cy"] * matched["weight"] + cy * weight) / tw
-                matched["weight"] = tw
-                matched["max_prob"] = max(matched["max_prob"], prob)
+    def _stabilize_single_box(self, raw_box):
+        """감지 시 1개 박스만 출력하고, 3초 정지 중 깜빡이지 않도록 유지"""
+        if raw_box is not None:
+            self.pos_streak += 1
+            self.neg_streak = 0
+            if self.active_box is None:
+                self.active_box = raw_box
             else:
-                clusters.append({"cx": cx, "cy": cy, "weight": weight, "max_prob": prob})
-        return clusters
+                # 박스 위치가 미세하게 떨리지 않도록 부드럽게 보정
+                self.active_box = {
+                    "x": int(self.active_box["x"] * 0.6 + raw_box["x"] * 0.4),
+                    "y": int(self.active_box["y"] * 0.6 + raw_box["y"] * 0.4),
+                    "w": raw_box["w"],
+                    "h": raw_box["h"],
+                    "prob": raw_box["prob"]
+                }
+            if self.pos_streak >= 2:
+                return [self.active_box]
+            return []
+        else:
+            self.neg_streak += 1
+            self.pos_streak = 0
+            # 잠깐 1~4프레임 놓치더라도 감지 상태를 안정적으로 유지
+            if self.active_box is not None and self.neg_streak <= 4:
+                return [self.active_box]
+            self.active_box = None
+            return []
 
     def _infer(self, frame):
         h, w, _ = frame.shape
@@ -106,7 +114,7 @@ class LegoCameraDetector:
                 centers.append((x + eff_patch / 2.0, y + eff_patch / 2.0))
 
         if not patches:
-            return []
+            return self._stabilize_single_box(None)
 
         batch = np.stack(patches).astype(np.float32) / 255.0
         batch = (batch - self.mean) / self.std
@@ -117,21 +125,28 @@ class LegoCameraDetector:
             probs = torch.softmax(logits, dim=1)[:, self.lego_idx].cpu().numpy()
 
         hits = [(cx, cy, float(p)) for (cx, cy), p in zip(centers, probs) if p >= CONF_THRESHOLD]
-        merged = self._merge_detections(hits, eff_patch)
+        if not hits:
+            return self._stabilize_single_box(None)
+
+        # 가장 확신도가 높은 지점을 기준으로 인접 반응을 하나로 합쳐 1개 박스만 생성
+        best_cx, best_cy, max_prob = max(hits, key=lambda item: item[2])
+        nearby = [item for item in hits if math.hypot(item[0] - best_cx, item[1] - best_cy) <= eff_patch * 0.9]
+
+        total_w = sum(p ** 2 for _, _, p in nearby)
+        avg_cx = sum(cx * (p ** 2) for cx, _, p in nearby) / total_w
+        avg_cy = sum(cy * (p ** 2) for _, cy, p in nearby) / total_w
 
         half = eff_patch // 2
-        boxes = []
-        for item in merged:
-            bx = int(max(0, min(w - eff_patch, item["cx"] - half)))
-            by = int(max(0, min(h - eff_patch, item["cy"] - half)))
-            boxes.append({
-                "x": bx,
-                "y": by,
-                "w": int(eff_patch),
-                "h": int(eff_patch),
-                "prob": round(float(item["max_prob"]), 3)
-            })
-        return boxes
+        bx = int(max(0, min(w - eff_patch, avg_cx - half)))
+        by = int(max(0, min(h - eff_patch, avg_cy - half)))
+        raw_box = {
+            "x": bx,
+            "y": by,
+            "w": int(eff_patch),
+            "h": int(eff_patch),
+            "prob": round(float(max_prob), 3)
+        }
+        return self._stabilize_single_box(raw_box)
 
     def _loop(self, preferred_idx):
         order = [preferred_idx] + [i for i in [1, 0, 2] if i != preferred_idx]
@@ -150,6 +165,9 @@ class LegoCameraDetector:
             return
 
         self.cam_idx = active_idx
+        self.pos_streak = 0
+        self.neg_streak = 0
+        self.active_box = None
         frames = 0
         fps_t = time.time()
         fps = 0
@@ -190,7 +208,6 @@ class LegoCameraDetector:
         with self.lock:
             self.latest["ok"] = False
 
-    # --- pywebview JS API 노출 메서드 ---
     def cam_list(self):
         return [
             {"id": "1", "label": "외장 웹캠 (카메라 #1)"},
@@ -219,39 +236,3 @@ class LegoCameraDetector:
     def cam_poll(self):
         with self.lock:
             return dict(self.latest)
-
-
-# 단독 실행 테스트용 (기존 로봇 백엔드 없이 바로 UI + 카메라를 띄울 때 사용)
-if __name__ == "__main__":
-    import webview
-
-    class StandaloneApi(LegoCameraDetector):
-        def __init__(self):
-            super().__init__()
-            self.robots = [{"serial": "RX200-001", "name": "로봇 A", "model": "ROBO-X200",
-                            "battery": 85, "voltage": 12.1, "moving": False, "age": None,
-                            "gen": 0, "odo": {"x": 0, "y": 0, "th": 0, "l": 0, "r": 0}, "hist": []}]
-
-        def list_ports(self): return []
-        def connect(self, port, baud): return {"ok": False, "error": "단독 카메라 테스트 모드"}
-        def disconnect(self): return {"ok": True}
-        def set_channel(self, ch): return {"ok": True}
-        def remove_robot(self, sn): return {"ok": True}
-        def start_test(self, sn): return {"ok": False, "error": "단독 모드"}
-        def register(self, m, s, n, memo): return {"ok": False, "error": "단독 모드"}
-        def set_params(self, t, d, b): return {"ok": True}
-        def inject(self, sn, l, r, add): return {"ok": True}
-        def reset_pose(self, sn): return {"ok": True}
-        def get_state(self):
-            return {
-                "now": time.time(),
-                "rx": {"state": "off", "age": None, "error": "", "mode": "standalone"},
-                "robots": self.robots,
-                "log": [],
-                "params": {"tpr": 360, "dia": 0.065, "base": 0.16}
-            }
-
-    api = StandaloneApi()
-    html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui2.html")
-    win = webview.create_window("Robofest - LEGO Detector", html_path, js_api=api, width=1280, height=820)
-    webview.start()
